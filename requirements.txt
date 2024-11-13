@@ -1,0 +1,3 @@
+aiogram
+cloudscraper
+validators
