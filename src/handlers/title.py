@@ -35,6 +35,7 @@ from aiogram.types import (
 
 # typing
 from src.types import Request
+from src.types.api import ApiTitleData
 from typing import (
     TypedDict,
     Optional,
@@ -42,8 +43,7 @@ from typing import (
     Union,
     Dict,
     List,
-    Any,
-    override
+    Any
 )
 
 # utils
@@ -51,156 +51,35 @@ import urllib.parse
 import validators
 import re
 
+# constants
+from src.constants import *
+
 
 # Router
 router = Router()
 
 
-# Constants
-SITE_IDS = {
-    'manga': 1,
-    'slash': 2,
-    'ranobe': 3,
-    'hentai': 4,
-    'anime': 5
-}
+# Exceptions
+class UnknownUrl(Exception):
+    url: str
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
 
-TITLE_DOMENS = {
-    'mangalib.org': 'manga',
-    'test-front.mangalib.me': 'manga',
-    'slashlib.me': 'slash',
-    'ranobelib.me': 'ranobe',
-    'hentailib.me': 'hentai',
-    'anilib.me': 'anime'
-}
+class MismatchUrl(Exception):
+    url: str
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
 
-_ = '?fields[]=background' \
-'&fields[]=eng_name' \
-'&fields[]=otherNames' \
-'&fields[]=summary' \
-'&fields[]=releaseDate' \
-'&fields[]=type_id' \
-'&fields[]=caution' \
-'&fields[]=views' \
-'&fields[]=close_view' \
-'&fields[]=rate_avg' \
-'&fields[]=rate' \
-'&fields[]=genres' \
-'&fields[]=tags' \
-'&fields[]=teams' \
-'&fields[]=user' \
-'&fields[]=franchise' \
-'&fields[]=authors' \
-'&fields[]=publisher' \
-'&fields[]=userRating' \
-'&fields[]=moderated' \
-'&fields[]=metadata' \
-'&fields[]=metadata.count' \
-'&fields[]=metadata.close_comments'
+class TitleNotExist(Exception):
+    slug_url: str
+    def __init__(self, slug_url: str):
+        super().__init__()
+        self.slug_url = slug_url
 
-INDEX_URL = 'https://api.mangalib.me/api/manga/{slug_url}' + _ + \
-'&fields[]=manga_status_id' \
-'&fields[]=chap_count' \
-'&fields[]=status_id' \
-'&fields[]=artists' \
-'&fields[]=format'
-
-ANIME_URL = 'https://api.mangalib.me/api/anime/{slug_url}' + _ + \
-'&fields[]=anime_status_id' \
-'&fields[]=time' \
-'&fields[]=episodes' \
-'&fields[]=episodes_count' \
-'&fields[]=episodesSchedule' \
-'&fields[]=shiki_rate'
-
-REQUIRED_URL = {
-    'manga': INDEX_URL,
-    'slash': INDEX_URL,
-    'ranobe': INDEX_URL,
-    'hentai': INDEX_URL,
-    'anime': ANIME_URL
-}
-
-CATALOG_URL = 'https://api.mangalib.me/api/{title_type}' \
-'?site_id[]={site_id}' \
-'&q={query}' \
-'&page={page}' \
-'&fields[]=rate' \
-'&fields[]=rate_avg' \
-'&fields[]=userBookmark'
-
-TITLE_URLS = {
-    1: 'https://mangalib.org/ru/manga/{slug_url}',
-    2: 'https://v2.slashlib.me/ru/manga/{slug_url}',
-    3: 'https://ranobelib.me/ru/book/{slug_url}',
-    4: 'https://hentailib.me/ru/manga/{slug_url}',
-    5: 'https://anilib.me/ru/anime/{slug_url}'
-}
-
-CAUTION = {
-    0: 'Нет',
-    1: '6+',
-    2: '12+',
-    3: '16+',
-    4: '18+',
-    5: '18+ (RX)'
-}
-
-TYPES = {
-    1: 'Манга',
-    5: 'Манхва',
-    4: 'OEL-манга',
-    6: 'Маньхуа',
-    8: 'Руманга',
-    9: 'Комикс'
-}
-
-FORMAT = {
-    1: '4-кома (Ёнкома)',
-    2: 'Сборник',
-    3: 'Додзинси',
-    4: 'В цвете',
-    5: 'Сингл',
-    6: 'Веб',
-    7: 'Вебтун'
-}
-
-STATUS = {
-    1: 'Онгоинг',
-    2: 'Завершён',
-    3: 'Анонс',
-    4: 'Приостановлен',
-    5: 'Выпуск прекращён'
-}
-
-SCANLATE_STATUS = {
-    1: 'Продолжается',
-    2: 'Завершён',
-    3: 'Заморожен',
-    4: 'Заброшен'
-}
-
-
-# Utils
-def get_catalog_url(
-    title_type: str,
-    site_id: int,
-    page: int,
-    filters: FiltersData
-) -> str:
-    data = filters.copy()
-    if page > 1:
-        data['page'] = page
-    if data.get('q'):
-        data['q'] = urllib.parse.quote_plus(data['q'])
-    data['fields'] = ['rate', 'rate_avg', 'userBookmark']
-    result = []
-    for section in data:
-        if isinstance(data[section], list):
-            result.extend([(f'{section}[]', f'{value}') for value in sorted(data[section])])
-        else:
-            result.append((section, f'{data[section]}'))
-    return f'https://api.mangalib.me/api/{title_type}?site_id[]={site_id}' + ''.join([f'&{key}={value}' for key, value in sorted(result)])
+class NoActionRequired(Exception):
+    pass
 
 
 # Callback Data Types
@@ -224,14 +103,15 @@ class NamedFilterCallbackData(CallbackData, prefix='filter_other'):
     user_id: int
     section: str
 
-class CommandCallbackData(TypedDict):
-    site: str
-    site_id: int
-    slug_url: Optional[str]
-    query: Optional[str]
+class ReadCallbackData(CallbackData, prefix='read'):
+    user_id: int
 
 
-# Other Data Types
+# Data Types
+class MetaData(TypedDict):
+    index: int
+    slugs: List[str]
+
 class FiltersData(TypedDict, total=False):
     q: str  # текст запроса
     genres: List[int]  # включение жанров
@@ -253,44 +133,19 @@ class FiltersData(TypedDict, total=False):
     status: List[int]  # статус сайта
     scanlate_status: List[int]  # статус перевода
     long_no_translation: Literal[1]  # "Нет перевода уже 3 месяца"
-    licensed: Literal[1]  # "Лицензирован"
+    licensed: Literal[0, 1]  # "Лицензирован"
     buy: Literal[1]  # "Можно приобрести"
     bookmarks: List[int]  # вклучение списков
     bookmarks_exclude: List[int]  # исключение списков
 
+class SortingData(TypedDict, total=False):
+    sort_by: sort_by
+    sort_type: sort_type
+
 # State Groups
 class TitleState(StatesGroup):
-    catalog = State()
-    search = State()
-
-
-# Exceptions
-class CommandError(Exception):
-    command: CommandObject
-    def __init__(self, command: CommandObject) -> None:
-        super().__init__()
-        self.command = command
-
-class UnknownUrl(CommandError):
-    url: str
-    def __init__(self, command: CommandObject, url: str):
-        super().__init__(command)
-        self.url = url
-
-class MismatchUrl(CommandError):
-    url: str
-    def __init__(self, command: CommandObject, url: str):
-        super().__init__(command)
-        self.url = url
-
-class TitleNotExist(Exception):
-    slug_url: str
-    def __init__(self, slug_url: str):
-        super().__init__()
-        self.slug_url = slug_url
-
-class NoActionRequired(Exception):
-    pass
+    main_page = State()
+    in_catalog = State()
 
 
 # Filters
@@ -299,56 +154,22 @@ class CommandTitle(Command):
         super().__init__(re.compile(r'manga|slash|ranobe|hentai|anime'))
 
     async def __call__(self, message: Message, bot: Bot, state: FSMContext) -> bool:
-        if not (result := await super().__call__(message, bot)):
+        if not (command_data := await super().__call__(message, bot)):
             return False
 
-        pattern = r'https://((test-front.mangalib.me|mangalib.org|v2.slashlib.me|hentai.me)/ru/manga|ranobelib.me/ru/book|anilib.me/ru/anime)/(\d+--\w[\w-]+)(/\S*)?'
-        command: CommandObject = result['command']
-        site = command.command
-        site_id = SITE_IDS[site]
-        args = command.args or ''
+        command: CommandObject = command_data['command']
 
-        # when slug_url is used
-        if args and re.fullmatch(r'\d+--\w[\w-]+', args):
-            slug_url, query = args, None
-
-        # when title url is used
-        elif args and (match := re.fullmatch(pattern, args)):
-            if site != (site := re.findall(r'manga|slash|ranobe|hentai|anime', match.group(1))[0]):
-                raise MismatchUrl(command, args)
-            site_id = SITE_IDS[site]
-            slug_url, query = match.group(2), None
-
-        # when other URLs are used
-        elif args and validators.url(args):
-            raise UnknownUrl(command, args)
-        
-        # when query is used
-        else:
-            await state.set_state(TitleState.catalog)
-            await state.update_data({
-                'index': 0,
-                'slugs': None,
-                'filters': {}
-            })
-            slug_url, query = None, args
-
-        await state.update_data({
-            'main': {
-                'site': site,
-                'site_id': site_id,
-                'slug_url': slug_url
-            },
-            'filters': {
-                'q': query
-            }
-        })
+        await smart_update_state_by_query_string(
+            site_id=get_site_id_by(command.command),
+            query=command.args or '',
+            state=state
+        )
         return True
 
 class ChangeQueryMessageFilter(Filter):
     async def __call__(self):
         return super().__call__(
-            TitleState.catalog,
+            TitleState.in_catalog,
             not F.text.startswith('/')
         )
 
@@ -388,47 +209,304 @@ class NamedFilterCallbackQueryFilter(BaseCallbackQueryFilter):
         super().__init__(NamedFilterCallbackData, 'section', *fields)
 
 
+# Types
+site_name = Literal['manga', 'slash', 'ranobe', 'hentai', 'anime']
+site_id = Literal[1, 2, 3, 4, 5]
+site_api_type = Literal['manga', 'anime']
+site_content_type = Literal['manga', 'book', 'anime']
+
+caution_filter_id = Literal[0, 1, 2, 3, 4, 5]
+type_filter_id = Literal[1, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+format_filter_id = Literal[1, 2, 3, 4, 5, 6, 7]
+status_filter_id = Literal[1, 2, 3, 4, 5]
+scanlate_status_filter_id = Literal[1, 2, 3, 4]
+
+caution_filter_text = Literal['Нет', '6+', '12+', '16+', '18+', '18+ (RX)']
+type_filter_text = Literal['Манга', 'OEL-манга', 'Манхва', 'Маньхуа', 'Руманга', 'Комикс', 'Япония', 'Корея', 'Китай', 'Английский', 'Авторский', 'Фанфик', 'TV-сериал', 'Фильм', 'Корометражка', 'Спешл', 'OVA', 'ONA', 'Клип']
+format_filter_text = Literal['4-кома (Ёнкома)', 'Сборник', 'Додзинси', 'В цвете', 'Сингл', 'Веб', 'Вебтун']
+status_filter_text = Literal['Онгоинг', 'Завершён', 'Анонс', 'Приостановлен', 'Выпуск прекращён']
+scanlate_status_filter_text = Literal['Продолжается', 'Завершён', 'Заморожен', 'Заброшен']
+
+sort_by = Literal['rate_avg', 'views', 'chap_count', 'releaseDate', 'last_chapter_at', 'created_at', 'name', 'rus_name']
+sort_type = Literal['asc']
+
+sort_by_names = Literal['По популярности', 'По рейтингу', 'По просмотрам', 'По количеству глав', 'По дате релиза', 'По дате обновления', 'По дате добавления', 'По зазванию (A-Z)', 'По названию (А-Я)']
+sort_type_names = Literal['По убыванию', 'По воврастанию']
+
+
+# Utils
+def get_site_id_by(site_name: site_name) -> site_id:
+    match site_name:
+        case 'manga': return 1
+        case 'slash': return 2
+        case 'ranobe': return 3
+        case 'hentai': return 4
+        case 'anime': return 5
+
+def get_site_api_type_by(site_id: site_id) -> site_api_type:
+    match site_id:
+        case 1 | 2 | 3 | 4: return 'manga'
+        case 5: return 'anime'
+
+def get_site_content_type_by(site_id: site_id) -> site_content_type:
+    match site_id:
+        case 1 | 2 | 4: return 'manga'
+        case 3: return 'book'
+        case 5: return 'anime'
+
+def get_caution_filter_text_by(caution_filter_id: caution_filter_id) -> caution_filter_text:
+    return CAUTION[caution_filter_id]
+
+def get_type_filter_text_by(type_filter_id: type_filter_id) -> type_filter_text:
+    return TYPES[type_filter_id]
+
+def get_format_filter_text_by(format_filter_id: format_filter_id) -> format_filter_text:
+    return FORMAT[format_filter_id]
+
+def get_status_filter_text_by(status_filter_id: status_filter_id) -> status_filter_text:
+    return STATUS[status_filter_id]
+
+def get_scanlate_status_filter_text_by(scanlate_status_filter_id: scanlate_status_filter_id) -> scanlate_status_filter_text:
+    return SCANLATE_STATUS[scanlate_status_filter_id]
+
+def get_sort_by_name_by(sort_by: Optional[sort_by]) -> sort_by_names:
+    match sort_by:
+        case None: return 'По популярности'
+        case 'rate_avg': return 'По рейтингу'
+        case 'views': return 'По просмотрам'
+        case 'chap_count': return 'По количеству глав'
+        case 'releaseDate': return 'По дате релиза'
+        case 'last_chapter_at': return 'По дате обновления'
+        case 'created_at': return 'По дате добавления'
+        case 'name': return 'По зазванию (A-Z)'
+        case 'rus_name': return 'По названию (А-Я)'
+
+def get_sort_type_name_by(sort_type: Optional[sort_type]) -> sort_by_names:
+    match sort_type:
+        case None: return 'По убыванию'
+        case 'asc': return 'По возрастанию'
+
+def get_api_catalog_url(
+    *,
+    meta: MetaData,
+    filters: FiltersData,
+    sorting: SortingData
+) -> str:
+    args = [
+        ('fields[]', 'rate'),
+        ('fields[]', 'rate_avg'),
+        ('fields[]', 'userBookmark')
+    ]
+    if meta['index'] > 60:
+        args.append(('page', str(meta['index'] // 60 + 1)))
+    for section, value in filters.items():
+        if section == 'q':
+            args.append(('q', urllib.parse.quote_plus(value)))
+        elif isinstance(value, list):
+            args.extend([(f'{section}[]', str(value)) for value in sorted(value)])
+        else:
+            args.append((section, str(value)))
+    for parameter, value in sorting.items():
+        args.append((parameter, value))
+    return f'https://api.mangalib.me/api/{get_site_api_type_by(filters['site_id'][0])}?' + '&'.join(
+        f'{key}={value}' for key, value in sorted(args)
+    )
+
+def get_api_title_url(
+    *,
+    site_api_type: site_api_type,
+    slug_url: str
+) -> str:
+    fields = (
+        'authors',
+        'background',
+        'caution',
+        'close_view',
+        'eng_name',
+        'franchise',
+        'genres',
+        'metadata',
+        'metadata.close_comments',
+        'metadata.count',
+        'moderated',
+        'otherNames',
+        'publisher',
+        'rate',
+        'rate_avg',
+        'releaseDate',
+        'summary',
+        'tags',
+        'teams',
+        'type_id',
+        'user',
+        'userRating',
+        'views'
+    )
+    match site_api_type:
+        case 'manga':
+            fields += ('artists', 'chap_count', 'format', 'manga_status_id', 'status_id')
+        case 'anime':
+            fields += ('anime_status_id', 'episodes', 'episodes_count', 'episodesSchedule', 'shiki_rate', 'time')
+    return f'https://api.mangalib.me/api/{site_api_type}/{slug_url}?' + '&'.join(
+        f'fields[]={value}' for value in fields
+    )
+
+def get_link_to_title(
+    *,
+    site_id: site_id,
+    slug_url: str
+) -> str:
+    match site_id:
+        case 1: return f'https://mangalib.org/ru/manga/{slug_url}'
+        case 2: return f'https://v2.slashlib.me/ru/manga/{slug_url}'
+        case 3: return f'https://ranobelib.me/ru/book/{slug_url}'
+        case 4: return f'https://hentailib.me/ru/manga/{slug_url}'
+        case 5: return f'https://anilib.me/ru/anime/{slug_url}'
+
+def get_all_filter_fields_by(site_id: site_id) -> Dict[str, List[Union[int, str]]]:
+    match site_id:
+        case 1:
+            return {
+                'caution': [0, 1, 2, 3, 4, 5],
+                'types': [1, 4, 5, 6, 8, 9],
+                'format': [1, 2, 3, 4, 5, 6, 7],
+                'status': [1, 2, 3, 4, 5],
+                'scanlate_status': [1, 2, 3, 4],
+                'other': ['long_no_translation', 'licensed', 'buy']
+            }
+        case 2:
+            return {
+                'caution': [0, 1, 2, 3, 4, 5],
+                'types': [1, 4, 5, 6, 8, 9],
+                'format': [1, 2, 3, 4, 5, 6, 7],
+                'status': [1, 2, 3, 4, 5],
+                'scanlate_status': [1, 2, 3, 4],
+                'other': ['long_no_translation']
+            }
+        case 3:
+            return {
+                'caution': [0, 1, 2, 3, 4, 5],
+                'types': [10, 11, 12, 13, 14, 15],
+                'format': [1, 2, 3, 4, 5, 6, 7],
+                'status': [1, 2, 3, 4, 5],
+                'scanlate_status': [1, 2, 3, 4],
+                'other': ['long_no_translation', 'licensed', 'buy']
+            }
+        case 4:
+            return {
+                'types': [1, 4, 5, 6, 8, 9],
+                'format': [1, 2, 3, 4, 5, 6, 7],
+                'status': [1, 2, 3, 4, 5],
+                'scanlate_status': [1, 2, 3, 4],
+                'other': ['long_no_translation']
+            }
+        case 5:
+            return {
+                'caution': [0, 1, 2, 3, 4, 5],
+                'types': [1, 4, 5, 6, 8, 9],
+                'status': [1, 2, 3],
+                'other': ['licensed']
+            }
+
+async def smart_update_state_by_query_string(
+    *,
+    site_id: site_id,
+    query: Optional[str],
+    state: FSMContext
+) -> None:
+    pattern = r'https://((test-front.mangalib.me|mangalib.org|v2.slashlib.me|hentai.me)/ru/manga|ranobelib.me/ru/book|anilib.me/ru/anime)/(\d+--\w[\w-]+)(/\S*)?'
+
+    # get the filters from state
+    if await state.get_state() == TitleState.in_catalog:
+        data = await state.get_data()
+        filters = data['filters']
+        sorting = data['sorting']
+    else:
+        filters = {}
+        sorting = {}
+
+    # when slug_url is used
+    if query and re.fullmatch(r'\d+--\w[\w-]+', query):
+        slug_url = query
+
+    # when title url is used
+    elif query and (match := re.fullmatch(pattern, query)):
+        if site_id != (site_id := get_site_id_by(re.findall(r'manga|slash|ranobe|hentai|anime', match.group(1))[0])):
+            raise MismatchUrl(query)
+        slug_url = match.group(2)
+
+    # when other URLs are used
+    elif query and validators.url(query):
+        raise UnknownUrl(query)
+
+    # when query is used
+    else:
+        await state.set_state(TitleState.in_catalog)
+        await state.set_data({
+            'site_id': site_id,
+            'slug_url': None,
+            'meta': {
+                'index': 0,
+                'ended': False,
+                'slugs': []
+            },
+            'filters': {
+                **filters,
+                'site_id': [site_id],
+                'q': query
+            },
+            'sorting': sorting
+        })
+        return
+
+    await state.set_state(TitleState.main_page)
+    await state.set_data({
+        'site_id': site_id,
+        'slug_url': slug_url
+    })
+
+
 # Getting Data
 async def get_title_data(
     *,
     request: Request,
     state: FSMContext
-) -> Optional[Any]:
+) -> ApiTitleData:
     data = await state.get_data()
-    main = data['main']
-    filters = data['filters']
-    site, site_id, slug_url = main['site'], main['site_id'], main['slug_url']
-    index: int = data.get('index')
-    slugs: Optional[List[str]] = data.get('slugs') or []
+    site_id: site_id = data['site_id']
+    meta: MetaData = data['meta']
+    slug_url: str = data['slug_url']
+    filters: FiltersData = data['filters']
+    sorting: SortingData = data['sorting']
 
-    # get list of titles
-    if await state.get_state() == TitleState.catalog:
-        if not slugs or (len(slugs) % 60 == 0 and index >= len(slugs)):
-            response: Any = request.get(
-                url=get_catalog_url(
-                    title_type='anime' if site == 'anime' else 'manga',
-                    site_id=site_id,
-                    page=index // 60 + 1,
-                    filters=filters
-                )
-            ).json()['data']
-            slugs.extend([title['slug_url'] for title in response])
-            await state.update_data(slugs=slugs)
-        if index >= len(slugs):
-            await state.update_data(index=index - 1)
-            raise NoActionRequired()
-        if index == -1:
-            await state.update_data(index=index + 1)
-            raise NoActionRequired()
-        slug_url = slugs[index]
-        await state.update_data(slug_url=slug_url)
+    # there is a separate check for the catalog
+    if await state.get_state() == TitleState.in_catalog:
 
-    # get the data about this title
-    title = request.get(REQUIRED_URL[site].format(
-        type='anime' if site == 'anime' else 'manga',
+        # getting a list of slugs from the api
+        if meta['index'] >= len(meta['slugs']) and not meta['ended']:
+            titles = request.get(get_api_catalog_url(
+                meta=meta,
+                filters=filters,
+                sorting=sorting
+            )).json()['data']
+            meta['slugs'].extend([title['slug_url'] for title in titles])
+
+        # checking that the title index has not gone beyond the slugs list
+        if meta['index'] >= len(meta['slugs']):
+            await state.update_data(meta={ **meta, 'ended': True, 'index': meta['index'] - 1 })
+            raise NoActionRequired()
+        elif meta['index'] < 0:
+            await state.update_data(meta={ **meta, 'index': 0 })
+            raise NoActionRequired()
+        
+        # updating the data
+        slug_url = meta['slugs'][meta['index']]
+        await state.update_data({ 'meta': meta, 'slug_url': slug_url })
+    
+    title = request.get(get_api_title_url(
+        site_api_type=get_site_api_type_by(site_id),
         slug_url=slug_url
     )).json()['data']
-
     if 'toast' in title:
         raise TitleNotExist()
     return title
@@ -448,9 +526,6 @@ async def generate_title_message(
         request=request,
         state=state
     )
-    if not data:
-        return
-
     return {
         'parse_mode': ParseMode.HTML,
         'link_preview_options': LinkPreviewOptions(
@@ -497,7 +572,7 @@ async def generate_filters_message(
     request: Request,
     state: FSMContext
 ) -> Dict[str, Any]:
-    filters = (await state.get_data())['filters']
+    filters: FiltersData = (await state.get_data())['filters']
 
     def text(text: Optional[str]) -> Optional[Text]:
         return Text(text) if text else Text('')
@@ -522,20 +597,17 @@ async def generate_filters_message(
             case _, _:
                 return Text('Начиная с ', Code(minimum), ' и заканчивая на ', Code(maximum))
 
-    def select_fields(fields: Optional[List[int]], storage: Dict[int, str]) -> Optional[Text]:
+    def select_fields(fields: Optional[List[int]], getter: Dict[int, str]) -> Optional[Text]:
         if fields:
-            return as_list(*('✅ ' + storage[id] for id in sorted(fields)))
+            return as_list(*('✅ ' + getter(id) for id in sorted(fields)))
 
-    def marked_fields(include: Optional[List[int]], exclude: Optional[List[int]], storage: Dict[int, str]) -> Optional[Text]:
+    def marked_fields(include: Optional[List[int]], exclude: Optional[List[int]], getter: Dict[int, str]) -> Optional[Text]:
         if include or exclude:
-            return as_list(*(('❇️ ' if id in include else '🅾️ ') + storage[id] for id in sorted(include or [] + exclude or [])))
+            return as_list(*(('❇️ ' if id in include else '🅾️ ') + getter(id) for id in sorted(include or [] + exclude or [])))
 
     def other_fields(long_no_translation: Optional[int], licensed: Optional[int], buy: Optional[int]) -> Text:
         if long_no_translation or licensed is not None or buy:
             return as_list(
-                # ('✅ ' if long_no_translation else '🔳 ') + 'Нет перевода уже 3 месяца',
-                # ('❇️ ' if licensed else '🅾️ ' if licensed == 0 else '🔳 ') + 'Лицензирован',
-                # ('✅ ' if buy else '🔳 ') + 'Можно приобрести'
                 *filter(lambda _: _, (
                     ('✅ Нет перевода уже 3 месяца' if long_no_translation else ''),
                     (('❇️ ' if licensed else '🅾️ ') + 'Лицензирован' if licensed is not None else ''),
@@ -576,24 +648,24 @@ async def generate_filters_message(
         ),
         'Возрастной рейтинг': select_fields(
             filters.get('caution'),
-            CAUTION
+            get_caution_filter_text_by
         ),
         'Тип': select_fields(
             filters.get('types'),
-            TYPES
+            get_type_filter_text_by
         ),
         'Формат выпуска': marked_fields(
             filters.get('format'),
             filters.get('format_exclude'),
-            FORMAT
+            get_format_filter_text_by
         ),
         'Статус тайтла': select_fields(
             filters.get('status'),
-            STATUS
+            get_status_filter_text_by
         ),
         'Статус перевода': select_fields(
             filters.get('scanlate_status'),
-            SCANLATE_STATUS
+            get_scanlate_status_filter_text_by
         ),
         'Другое': other_fields(
             filters.get('long_no_translation'),
@@ -619,10 +691,11 @@ async def generate_catalog_keyboard_markup(
     state: FSMContext,
     user_id: int
 ) -> InlineKeyboardMarkup:
-    main = (await state.get_data())['main']
-    site_id, slug_url = main['site_id'], main['slug_url']
+    data = await state.get_data()
+    site_id: int = data['site_id']
+    slug_url: str = data['slug_url']
     keyboard = InlineKeyboardBuilder()
-    if await state.get_state() == TitleState.catalog:
+    if await state.get_state() == TitleState.in_catalog:
         buttons = [
             {
                 'filters': 'Фильтры',
@@ -647,18 +720,22 @@ async def generate_catalog_keyboard_markup(
     keyboard.row(
         InlineKeyboardButton(
             text='Начать ' + ('смотреть' if site_id == 5 else 'читать'),
-            callback_data=f'abcd'
+            callback_data=ReadCallbackData(user_id=user_id).pack()
         ),
         InlineKeyboardButton(
             text='На страницу тайтла',
-            url=TITLE_URLS[site_id].format(slug_url=slug_url)
+            url=get_link_to_title(
+                site_id=site_id,
+                slug_url=slug_url
+            )
         )
     )
     return keyboard.as_markup()
 
 async def generate_filters_keyboard_markup(
     *,
-    user_id: int
+    user_id: int,
+    site_id: site_id
 ) -> InlineKeyboardMarkup:
     buttons = {
         'q': 'Текст запроса',
@@ -675,6 +752,7 @@ async def generate_filters_keyboard_markup(
         'scanlate_status': 'Статус перевода',
         'other': 'Другое'
     }
+    keys = get_all_filter_fields_by(site_id).keys()
     keyboard = InlineKeyboardBuilder()
     keyboard.add(*(
         InlineKeyboardButton(
@@ -683,7 +761,7 @@ async def generate_filters_keyboard_markup(
                 user_id=user_id,
                 section=section
             ).pack()
-        ) for section, text in buttons.items()
+        ) for section, text in buttons.items() if section in keys
     ))
     keyboard.adjust(1)
     keyboard.row(
@@ -706,6 +784,7 @@ async def generate_filters_keyboard_markup(
 async def generate_filter_fields_keyboard_markup(
     *,
     user_id: int,
+    site_id: site_id,
     section: str
 ) -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardBuilder()
@@ -722,33 +801,30 @@ async def generate_filter_fields_keyboard_markup(
                 'types': TYPES,
                 'format': FORMAT,
                 'status': STATUS,
-                'scanlate_status': SCANLATE_STATUS
+                'scanlate_status': SCANLATE_STATUS,
+                'other': OTHER
             }[section]
+            get_all_filter_fields_by(site_id).items()
             keyboard.add(*(
                 InlineKeyboardButton(
-                    text=text,
+                    text=storage[id],
                     callback_data=IdsFilterCallbackData(
                         user_id=user_id,
                         section=section,
                         id=id
                     ).pack()
-                ) for id, text in storage.items()
+                ) for id in get_all_filter_fields_by(site_id)[section]
             ))
             keyboard.adjust(2)
         case 'other':
-            buttons = {
-                'long_no_translation': 'Нет перевода уже 3 месяца',
-                'licensed': 'Лицензирован',
-                'buy': 'Можно приобрести'
-            }
             keyboard.add(*(
                 InlineKeyboardButton(
-                    text=text,
+                    text=OTHER[field],
                     callback_data=NamedFilterCallbackData(
                         user_id=user_id,
                         section=field
                     ).pack()
-                ) for field, text in buttons.items()
+                ) for field in get_all_filter_fields_by(site_id)[section]
             ))
             keyboard.adjust(1)
 
@@ -826,12 +902,17 @@ async def callback_catalog_navigate(
     request: Request,
     state: FSMContext
 ) -> None:
-    index = (await state.get_data())['index']
+    meta = (await state.get_data())['meta']
     offset = {
         'back': -1,
         'next': +1
     }
-    await state.update_data(index=index + offset[callback_data.action])
+    await state.update_data({
+        'meta': {
+            **meta,
+            'index': meta['index'] + offset[callback_data.action]
+        }
+    })
     try:
         kwargs = await generate_title_message(
             request=request,
@@ -867,18 +948,21 @@ async def callback_catalog_filters(
     state: FSMContext,
     request: Request
 ) -> None:
-    await state.update_data({
-        'slugs': None,
-        'index': 0
-    })
+    # await state.update_data({
+    #     'slugs': None,
+    #     'index': 0
+    # })
+    data = await state.get_data()
+    site_id: site_id = data['site_id']
     if callback_data.action == 'filters_clear':
-        filters = (await state.get_data())['filters']
+        filters: FiltersData = data['filters']
         await state.update_data(filters={'q': filters['q']} if 'q' in filters else {})
     kwargs = await generate_filters_message(
         request=request,
         state=state
     )
     reply_markup = await generate_filters_keyboard_markup(
+        site_id=site_id,
         user_id=callback_data.user_id
     )
     await callback.message.edit_text(**kwargs)
@@ -899,13 +983,16 @@ async def callback_catalog_filters(
 ))
 async def callback_catalog_filter_section(
     callback: CallbackQuery,
-    callback_data: FiltersCallbackData
+    callback_data: FiltersCallbackData,
+    state: FSMContext
 ) -> None:
+    site_id: site_id = (await state.get_data())['site_id']
     # if callback_data.section == 'q':
     #     await callback.answer(text='Для изменения текста запроса, просто отправьте боту сообщение с запросом', show_alert=True)
     #     return
     reply_markup = await generate_filter_fields_keyboard_markup(
         user_id=callback_data.user_id,
+        site_id=site_id,
         section=callback_data.section
     )
     await callback.message.edit_reply_markup(reply_markup=reply_markup)
@@ -933,7 +1020,9 @@ async def callback_catalog_filter_ids_field(
     state: FSMContext,
     request: Request
 ) -> None:
-    filters = (await state.get_data())['filters']
+    data = await state.get_data()
+    filters: FiltersData = data['filters']
+    site_id: site_id = data['site_id']
     section, id = callback_data.section, callback_data.id
     match section:
         case 'caution' | 'types' | 'status' | 'scanlate_status':
@@ -982,6 +1071,7 @@ async def callback_catalog_filter_ids_field(
     )
     reply_keyboard = await generate_filter_fields_keyboard_markup(
         user_id=callback_data.user_id,
+        site_id=site_id,
         section=section
     )
     await callback.message.edit_text(**kwargs)
@@ -994,7 +1084,9 @@ async def callback_catalog_filter_named_field(
     state: FSMContext,
     request: Request
 ) -> None:
-    filters = (await state.get_data())['filters']
+    data = await state.get_data()
+    filters: FiltersData = data['filters']
+    site_id: site_id = data['site_id']
     section = callback_data.section
     match section:
         case 'long_no_translation':
@@ -1027,6 +1119,7 @@ async def callback_catalog_filter_named_field(
     )
     reply_markup = await generate_filter_fields_keyboard_markup(
         user_id=callback_data.user_id,
+        site_id=site_id,
         section='other'
     )
     await callback.message.edit_text(**kwargs)
