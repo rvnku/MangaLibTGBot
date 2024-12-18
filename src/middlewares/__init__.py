@@ -1,2 +1,1 @@
-from src.middlewares.network import CloudflareMiddleware
-from src.middlewares.restriction import RestrictMiddleware
+from .restriction import RestrictMiddleware

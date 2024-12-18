@@ -1,13 +1,13 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from cloudscraper import CloudScraper
-from src.middlewares import CloudflareMiddleware, RestrictMiddleware
-from src.handlers import start, search, authorization, title
-from src.config import config
+from src.middlewares import RestrictMiddleware
+from src.handlers import start, search, auth, title
+from src.utils.config import config
+from src.database import init_database
 
 
-async def main(scraper: CloudScraper) -> None:
+async def main() -> None:
     dp = Dispatcher()
     bot = Bot(
         token=config.bot_token,
@@ -15,9 +15,9 @@ async def main(scraper: CloudScraper) -> None:
             parse_mode=ParseMode.HTML
         )
     )
-    dp.update.middleware(CloudflareMiddleware(scraper))
     dp.update.middleware(RestrictMiddleware())
-    dp.include_routers(start.router, search.router, authorization.router, title.router)
+    dp.include_routers(start.router, search.router, auth.router, title.router)
 
+    await init_database()
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

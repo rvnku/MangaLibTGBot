@@ -1,64 +1,95 @@
-from aiogram import Router, Bot
+from aiogram import Router
 from aiogram.enums import ParseMode
-from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent, LinkPreviewOptions
-from typing import List, Any, Dict
+from aiogram.types import (
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    LinkPreviewOptions
+)
 from fix.utils.formatting import BotCommand
-from src.types import Request
-import urllib.parse
+from src.database.user import User
+from src.filters.inline_query import SearchInlineQueryFilter
+from src.types.api import anime, manga
+from src.utils.config import config
+from src.utils.api import requests
+from src.utils import get_site_api_type, get_site_name
+
+from typing import Optional, Union, List
 
 router = Router()
 
 
-def fetch_titles_all_sites(query: str, page: int = 1, *, request: Request) -> Dict[int, List[Any]]:
-    if len(query) < 2:
-        return dict()
-    url = 'https://api.lib.social/api/{type}?fields[]=rate_avg&fields[]=rate&fields[]=releaseDate&q={q}&site_id[]={id}&page={page}'
-    sites = [
-        {'type': 'manga', 'id': 1},
-        # {'type': 'manga', 'id': 2},
-        {'type': 'manga', 'id': 3},
-        # {'type': 'manga', 'id': 4},
-        {'type': 'anime', 'id': 5},
-    ]
-    return {
-        site['id']: request.get(url.format(**site, q=urllib.parse.quote_plus(query), page=page)).json()['data']
-        for site in sites
-    }
+def generate_titles_list(
+    site: Optional[int],
+    query: str,
+    offset: int,
+    token: Optional[str] = None
+) -> List[InlineQueryResultArticle]:
+    articles: List[InlineQueryResultArticle] = []
+    response: List[Union[anime | manga]] = []
+
+    if site is None:
+        for site in (1, 2, 3, 4, 5):
+            page_min = offset // 60 + 1
+            page_max = (offset + 5) // 60 + 1
+            response.extend(sum(
+                (requests.get_titles_from_search(
+                    query=query,
+                    site_id=site,
+                    site_api_type=get_site_api_type(site),
+                    page=page,
+                    token=token
+                )['data']
+                for page in range(page_min, page_max + 1)),
+                start=[]
+            )[offset // 5 % 60 : offset // 5 % 60 + 5])
+            offset += 5
+
+    else:
+        page_min = offset // 60 + 1
+        page_max = (offset + 49) // 60 + 1
+        response.extend(sum(
+            (requests.get_titles_from_search(
+                query=query,
+                site_id=site,
+                site_api_type=get_site_api_type(site),
+                page=page,
+                token=token
+            )['data']
+            for page in range(page_min, page_max + 1)),
+            start=[]
+        )[offset % 60 : offset % 60 + 50])
+
+    for title in response:
+        articles.append(InlineQueryResultArticle(
+            id=str(title['id']),
+            title=title['rus_name'] or title['eng_name'] or title['name'],
+            description='%s  %s' % (title['type']['label'], title['releaseDateString']),
+            thumbnail_url=title['cover']['thumbnail'],
+            input_message_content=InputTextMessageContent(
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(prefer_small_media=True),
+                message_text=BotCommand(
+                    f'/{get_site_name(title['site'])}@{config.bot_username.lower()} {title['slug_url']}'
+                ).as_html()
+            )
+        ))
+    return articles
 
 
-def get_list_of_titles(query: str, offset: int, count: int = 5, *, request: Request, username: str):
-    command = {
-        1: 'manga',
-        2: 'slash',
-        3: 'ranobe',
-        4: 'hentai',
-        5: 'anime'
-    }
-    results = []
-    page = offset // (60 // count) + 1
-    offset %= 60 // count
-    for site_id, title_list in fetch_titles_all_sites(query, page=page, request=request).items():
-        for title in title_list[offset*count:offset*count+count]:
-            results.append(InlineQueryResultArticle(
-                id=str(title['id']),
-                title=title['rus_name'] or title['eng_name'] or title['name'],
-                description='%s  %s' % (title['type']['label'], title['releaseDateString']),
-                thumbnail_url=title['cover']['thumbnail'],
-                input_message_content=InputTextMessageContent(
-                    parse_mode=ParseMode.HTML,
-                    link_preview_options=LinkPreviewOptions(prefer_small_media=True),
-                    message_text=BotCommand(
-                        f'/{command[title['site']]}@{username} {title['slug_url']}'
-                    ).as_html()
-                )
-            ))
-    return results
+@router.inline_query(SearchInlineQueryFilter())
+async def search_callback(
+    inline_query: InlineQuery,
+    site: Optional[int],
+    query: str
+) -> None:
+    user = User(inline_query.from_user.id)
+    token = await user.get_token()
+    offset = int(inline_query.offset or 0) or 0
+    results = generate_titles_list(site, query, offset, token)
+    await inline_query.answer(results=results, is_personal=False, next_offset=f'{offset + 1}')
 
 
 @router.inline_query()
-async def search(query: InlineQuery, request: Request, bot: Bot):
-    if len(query.query) < 2:
-        return await query.answer(results=[], is_personal=True)
-    offset = int(query.offset) if query.offset else 0
-    results = get_list_of_titles(query.query, offset, request=request, username=(await bot.me()).username.lower())
-    await query.answer(results=results, is_personal=False, next_offset=f'{offset + 1}')
+async def search_callback(inline_query: InlineQuery) -> bool:
+    return await inline_query.answer(results=[], is_personal=True)
