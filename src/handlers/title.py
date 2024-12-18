@@ -178,6 +178,9 @@ async def callback_catalog_filter_section(
             title_message = await generate_paginated_filters_editor_message(
                 context, section=section
             )
+            title_keyboard_markup = await generate_filter_sections_editor_keyboard_markup(
+                context, section=section, setting_page=callback_data.setting_page
+            )
         case _:
             title_keyboard_markup = await generate_filter_sections_editor_keyboard_markup(
                 context, section=section, setting_page=callback_data.setting_page
