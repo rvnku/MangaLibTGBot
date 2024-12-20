@@ -4,7 +4,7 @@ from datetime import datetime, UTC
 from typing import List, Optional
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Integer, String, DateTime
+from sqlalchemy import BigInteger, String, DateTime
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from src.database.models.base import Base
@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 class UserModel(Base):
     __tablename__ = 'users'
 
-    telegram_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    id: Mapped[int] = mapped_column(Integer, nullable=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     token: Mapped[Optional[str]] = mapped_column(String(2048), default=None, nullable=True)
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.now(UTC), nullable=True)
     login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=None, nullable=True)
