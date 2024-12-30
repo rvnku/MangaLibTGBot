@@ -15,13 +15,13 @@ async def generate_start_keyboard_markup() -> Dict[str, Any]:
         'ranobe': 'Ранобэ',
         'anime': 'Аниме'
     }
-    for code, name in buttons.items():
-        keyboard.add(
-            InlineKeyboardButton(
-                text=name,
-                switch_inline_query_current_chat=code + ': '
-            )
+    keyboard.row(*(
+        InlineKeyboardButton(
+            text=name,
+            switch_inline_query_current_chat=code + ': '
         )
+        for code, name in buttons.items()
+    ))
     return {
-        'keyboard': keyboard.as_markup()
+        'reply_markup': keyboard.as_markup()
     }
