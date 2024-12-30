@@ -40,7 +40,6 @@ from src.utils.main import filter_section_getter
 
 
 async def generate_title_header(context: Context) -> Dict[str, Any]:
-    filters: CatalogFilters = context.data['filters']
     slug_url: Optional[str] = context.data['slug_url']
     is_catalog: bool = State.catalog_page == context.state
 
@@ -48,7 +47,7 @@ async def generate_title_header(context: Context) -> Dict[str, Any]:
         'parse_mode': ParseMode.HTML,
         'text': as_list(
             Bold('Поиск в каталоге:' if is_catalog else 'Информация о тайтле:'),
-            BlockQuote(filters.get('q') or '' if is_catalog else Code(slug_url))
+            BlockQuote(context.data['filters'].get('q') or '' if is_catalog else Code(slug_url))
         ).as_html()
     }
 
@@ -58,6 +57,7 @@ async def generate_title_message(context: Context) -> Dict[str, Any]:
     token: Optional[str] = context.user_token
     site_id: int = context.site_id
     slug_url: Optional[str] = context.data['slug_url']
+    is_catalog: bool = State.catalog_page == context.state
 
     try:
         if state == State.catalog_page:
@@ -97,7 +97,7 @@ async def generate_title_message(context: Context) -> Dict[str, Any]:
     except NotFoundError:
         return {
             'parse_mode': ParseMode.HTML,
-            'text': Text('Ничего не найдено.').as_html()
+            'text': Text('Ничего не найдено.' if is_catalog else 'Тайтл не существует.').as_html()
         }
     except ApiException as exc:
         return {

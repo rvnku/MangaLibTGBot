@@ -20,13 +20,15 @@ def request(url: str, site_id: int, token: Optional[str] = None):
     if url.startswith('/'):
         url = url[1:]
     response = rq.get(f'{get_api_url()}/{url}', headers=headers).json()
-    if 'toast' in response:
-        match response['toast']:
-            case {'type': type, 'message': 'Not Found'}:
-                raise NotFoundError(type)
-            case {'type': type, 'message': message}:
-                raise ApiException(type, message)
-    return response
+    match response:
+        case {'data': {'toast': toast}}:
+            match toast:
+                case {'type': type, 'message': 'Not Found'}:
+                    raise NotFoundError(type)
+                case {'type': type, 'message': message}:
+                    raise ApiException(type, message)
+        case _:
+            return response
 
 
 class requests:
