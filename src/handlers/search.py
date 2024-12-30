@@ -16,6 +16,7 @@ from src.utils import get_site_api_type, get_site_name
 
 from typing import Optional, Union, List
 
+
 router = Router()
 
 
@@ -63,7 +64,7 @@ def generate_titles_list(
     for title in response:
         articles.append(InlineQueryResultArticle(
             id=str(title['id']),
-            title=title['rus_name'] or title['eng_name'] or title['name'],
+            title=title['rus_name'] or title['eng_name'] or title['name'],  # type: ignore
             description='%s  %s' % (title['type']['label'], title['releaseDateString']),
             thumbnail_url=title['cover']['thumbnail'],
             input_message_content=InputTextMessageContent(
@@ -85,9 +86,9 @@ async def search_callback(
 ) -> None:
     user = User(inline_query.from_user.id)
     token = await user.get_token()
-    offset = int(inline_query.offset or 0) or 0
+    offset = int(inline_query.offset or '0')
     results = generate_titles_list(site, query, offset, token)
-    await inline_query.answer(results=results, is_personal=False, next_offset=f'{offset + 1}')
+    await inline_query.answer(results=results, is_personal=False, next_offset=f'{offset + len(results)}')
 
 
 @router.inline_query()
